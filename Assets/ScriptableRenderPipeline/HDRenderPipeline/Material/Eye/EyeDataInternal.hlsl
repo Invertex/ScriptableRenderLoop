@@ -10,14 +10,6 @@ void ADD_IDX(ComputeLayerTexCoord)( float2 texCoord0, float2 texCoord1, float2 t
     // Only used with layered, allow to have additional tiling
     uvBase *= additionalTiling.xx;
 
-
-    float2 uvDetails =  ADD_IDX(_UVDetailsMappingMask).x * texCoord0 +
-                        ADD_IDX(_UVDetailsMappingMask).y * texCoord1 +
-                        ADD_IDX(_UVDetailsMappingMask).z * texCoord2 +
-                        ADD_IDX(_UVDetailsMappingMask).w * texCoord3;
-
-    uvDetails *= additionalTiling.xx;
-
     // If base is planar/triplanar then detail map is forced to be planar/triplanar
     ADD_IDX(layerTexCoord.details).mappingType = ADD_IDX(layerTexCoord.base).mappingType = mappingType;
     ADD_IDX(layerTexCoord.details).normalWS = ADD_IDX(layerTexCoord.base).normalWS = layerTexCoord.vertexNormalWS;
@@ -31,26 +23,20 @@ void ADD_IDX(ComputeLayerTexCoord)( float2 texCoord0, float2 texCoord1, float2 t
     float2 uvXZ;
     float2 uvXY;
     float2 uvZY;
-
-    GetTriplanarCoordinate(GetAbsolutePositionWS(positionWS) * worldScale, uvXZ, uvXY, uvZY);
+    GetTriplanarCoordinate(positionWS * worldScale, uvXZ, uvXY, uvZY);
 
     // Planar is just XZ of triplanar
     if (mappingType == UV_MAPPING_PLANAR)
     {
-        uvBase = uvDetails = uvXZ;
+        uvBase = uvXZ;
     }
 
     // Apply tiling options
     ADD_IDX(layerTexCoord.base).uv = TRANSFORM_TEX(uvBase, ADD_IDX(_BaseColorMap));
-    ADD_IDX(layerTexCoord.details).uv = TRANSFORM_TEX(uvDetails, ADD_IDX(_DetailMap));
 
     ADD_IDX(layerTexCoord.base).uvXZ = TRANSFORM_TEX(uvXZ, ADD_IDX(_BaseColorMap));
     ADD_IDX(layerTexCoord.base).uvXY = TRANSFORM_TEX(uvXY, ADD_IDX(_BaseColorMap));
     ADD_IDX(layerTexCoord.base).uvZY = TRANSFORM_TEX(uvZY, ADD_IDX(_BaseColorMap));
-
-    ADD_IDX(layerTexCoord.details).uvXZ = TRANSFORM_TEX(uvXZ, ADD_IDX(_DetailMap));
-    ADD_IDX(layerTexCoord.details).uvXY = TRANSFORM_TEX(uvXY, ADD_IDX(_DetailMap));
-    ADD_IDX(layerTexCoord.details).uvZY = TRANSFORM_TEX(uvZY, ADD_IDX(_DetailMap));
 
     #ifdef SURFACE_GRADIENT
     // This part is only relevant for normal mapping with UV_MAPPING_UVSET
@@ -123,9 +109,9 @@ float3 ADD_IDX(GetNormalTS)(FragInputs input, LayerTexCoord layerTexCoord, float
 
     #ifdef _DETAIL_MAP_IDX
         #ifdef SURFACE_GRADIENT
-        normalTS += detailNormalTS * detailMask;
+        normalTS += detailNormalTS;
         #else
-        normalTS = lerp(normalTS, BlendNormalRNM(normalTS, detailNormalTS), detailMask);
+        normalTS = BlendNormalRNM(normalTS, detailNormalTS);
         #endif
     #endif
 #else
@@ -139,31 +125,58 @@ float3 ADD_IDX(GetNormalTS)(FragInputs input, LayerTexCoord layerTexCoord, float
     return normalTS;
 }
 
+static int bayer4x4[16] = {  0,  8,  2, 10,
+                            12,  4, 14,  6,
+                             3, 11,  1,  9,
+                            15,  7, 13,  5 };
+
+float BayerDither4x4(float2 uv){
+    int i = int(fmod(uv.x, 4));
+    int j = int(fmod(uv.y, 4));
+    return bayer4x4[(i + j * 4.0)] / 16.0;
+}
+
+
 // Return opacity
 float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out SurfaceData surfaceData, out float3 normalTS)
 {
-    float alpha = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.base)).a * ADD_IDX(_BaseColor).a;
+    float alpha = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.fuzz)).a * ADD_IDX(_BaseColor).a;
 
     // Perform alha test very early to save performance (a killed pixel will not sample textures)
-#if defined(_ALPHATEST_ON) && !defined(LAYERED_LIT_SHADER)
-    clip(alpha - _AlphaCutoff);
-#endif
 
     float3 detailNormalTS = float3(0.0, 0.0, 0.0);
     float detailMask = 0.0;
 #ifdef _DETAIL_MAP_IDX
-    detailMask = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMask), SAMPLER_DETAILMASK_IDX, ADD_IDX(layerTexCoord.base)).g;
-    float2 detailAlbedoAndSmoothness = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMap), SAMPLER_DETAILMAP_IDX, ADD_IDX(layerTexCoord.details)).rb;
+    detailMask = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMask), SAMPLER_DETAILMASK_IDX, ADD_IDX(layerTexCoord.fuzz)).r;
+    float4 detailAlbedoAndSmoothness = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMap), SAMPLER_DETAILMAP_IDX, ADD_IDX(layerTexCoord.details));
     float detailAlbedo = detailAlbedoAndSmoothness.r;
     float detailSmoothness = detailAlbedoAndSmoothness.g;
+    float detailAlpha = detailAlbedoAndSmoothness.a;
     // Resample the detail map but this time for the normal map. This call should be optimize by the compiler
     // We split both call due to trilinear mapping
     detailNormalTS = SAMPLE_UVMAPPING_NORMALMAP_AG(ADD_IDX(_DetailMap), SAMPLER_DETAILMAP_IDX, ADD_IDX(layerTexCoord.details), ADD_IDX(_DetailNormalScale));
 #endif
 
+#if defined(_ALPHATEST_ON) && !defined(LAYERED_LIT_SHADER)
+    #ifdef _DETAIL_MAP_IDX
+    	alpha *= detailAlpha;
+    #endif
+    alpha = alpha > _AlphaCutoffOpacityThreshold ? 1.0 : alpha;
+     //Dither
+    //----------------------------------
+    float a0 = round(alpha);
+    float a1 = 1 - a0;
+    float ditherSample = BayerDither4x4(input.unPositionSS.xy);
+    float ditherPattern = (abs(a0 - alpha) < ditherSample) ? a1 : a0;
+    alpha = alpha > ditherPattern ? 1.0 : alpha;
+    //----------------------------------
+    clip(alpha - _AlphaCutoff); // Let artists make prepass cutout thinner
+
+#endif
+
     surfaceData.baseColor = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.base)).rgb * ADD_IDX(_BaseColor).rgb;
 #ifdef _DETAIL_MAP_IDX
-    surfaceData.baseColor *= LerpWhiteTo(lerp(1,detailAlbedo, ADD_IDX(_DetailAlbedoScale)),detailMask);
+    surfaceData.baseColor = surfaceData.baseColor*lerp(1,detailAlbedo, ADD_IDX(_DetailAlbedoScale))+_DetailFuzz1*detailMask;
 #endif
 
 #ifdef _SPECULAROCCLUSIONMAP_IDX
@@ -175,7 +188,7 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
 #endif
     surfaceData.normalWS = float3(0.0, 0.0, 0.0); // Need to init this to keep quiet the compiler, but this is overriden later (0, 0, 0) so if we forget to override the compiler may comply.
 
-    normalTS = ADD_IDX(GetNormalTS)(input, layerTexCoord, detailNormalTS, detailMask, false, 0.0);
+    normalTS = ADD_IDX(GetNormalTS)(input, layerTexCoord, detailNormalTS, 1.0, false, 0.0);
 
 #if defined(_MASKMAP_IDX)
     surfaceData.perceptualSmoothness = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_MaskMap), SAMPLER_MASKMAP_IDX, ADD_IDX(layerTexCoord.base)).a;
@@ -184,32 +197,21 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
 #endif
     surfaceData.perceptualSmoothness *= ADD_IDX(_Smoothness);
 #ifdef _DETAIL_MAP_IDX
-    surfaceData.perceptualSmoothness *= LerpWhiteTo(2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale)), detailMask);
+    surfaceData.perceptualSmoothness *= 2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale));
 #endif
 
     // MaskMap is RGBA: Metallic, Ambient Occlusion (Optional), emissive Mask (Optional), Smoothness
 #ifdef _MASKMAP_IDX
-    surfaceData.metallic = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_MaskMap), SAMPLER_MASKMAP_IDX, ADD_IDX(layerTexCoord.base)).r;
     surfaceData.ambientOcclusion = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_MaskMap), SAMPLER_MASKMAP_IDX, ADD_IDX(layerTexCoord.base)).g;
 #else
-    surfaceData.metallic = 1.0;
     surfaceData.ambientOcclusion = 1.0;
 #endif
-    surfaceData.metallic *= ADD_IDX(_Metallic);
-
+    
     // This part of the code is not used in case of layered shader but we keep the same macro system for simplicity
 #if !defined(LAYERED_LIT_SHADER)
 
-    // Having individual shader features for each materialID like this allow the compiler to optimize
-#ifdef _MATID_SSS
-    surfaceData.materialId = MATERIALID_LIT_SSS;
-#elif defined(_MATID_ANISO)
-    surfaceData.materialId = MATERIALID_LIT_ANISO;
-#elif defined(_MATID_SPECULAR)
-    surfaceData.materialId = MATERIALID_LIT_STANDARD; // Specular is not a different BRDF, it is just different parametrization, do'nt do a separate matId for it
-#else // Default
-    surfaceData.materialId = MATERIALID_LIT_STANDARD;
-#endif
+    // TODO: In order to let the compiler optimize in case of forward rendering this need to be a variant (shader feature) and not a parameter!
+    surfaceData.materialId = _MaterialID;
 
 #ifdef _TANGENTMAP
     #ifdef _NORMALMAP_TANGENT_SPACE_IDX // Normal and tangent use same space
@@ -224,19 +226,9 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
     surfaceData.tangentWS = normalize(input.worldToTangent[0].xyz); // The tangent is not normalize in worldToTangent for mikkt. TODO: Check if it expected that we normalize with Morten. Tag: SURFACE_GRADIENT
 #endif
 
-#ifdef _ANISOTROPYMAP
-    surfaceData.anisotropy = SAMPLE_UVMAPPING_TEXTURE2D(_AnisotropyMap, sampler_AnisotropyMap, layerTexCoord.base).b;
-#else
-    surfaceData.anisotropy = 1.0;
-#endif
-    surfaceData.anisotropy *= ADD_IDX(_Anisotropy);
+    surfaceData.anisotropy = 0.0;
 
-    // This surfaceData.specular must be static to allow the compiler to optimize the code when converting / encoding the values
-#ifdef _MATID_SPECULAR
-    surfaceData.specular = SPECULARVALUE_SPECULAR_COLOR;
-#else
-    surfaceData.specular = SPECULARVALUE_REGULAR;
-#endif
+    surfaceData.specular = 0.04;
 
     surfaceData.subsurfaceProfile = _SubsurfaceProfile;
     surfaceData.subsurfaceRadius  = _SubsurfaceRadius;

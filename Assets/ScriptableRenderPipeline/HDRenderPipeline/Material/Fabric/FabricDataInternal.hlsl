@@ -42,6 +42,7 @@ void ADD_IDX(ComputeLayerTexCoord)( float2 texCoord0, float2 texCoord1, float2 t
     // Apply tiling options
     ADD_IDX(layerTexCoord.base).uv = TRANSFORM_TEX(uvBase, ADD_IDX(_BaseColorMap));
     ADD_IDX(layerTexCoord.details).uv = TRANSFORM_TEX(uvDetails, ADD_IDX(_DetailMap));
+    ADD_IDX(layerTexCoord.fuzz).uv = TRANSFORM_TEX(0.2*uvDetails, ADD_IDX(_DetailMap));
 
     ADD_IDX(layerTexCoord.base).uvXZ = TRANSFORM_TEX(uvXZ, ADD_IDX(_BaseColorMap));
     ADD_IDX(layerTexCoord.base).uvXY = TRANSFORM_TEX(uvXY, ADD_IDX(_BaseColorMap));
@@ -124,7 +125,7 @@ float3 ADD_IDX(GetNormalTS)(FragInputs input, LayerTexCoord layerTexCoord, float
         #ifdef SURFACE_GRADIENT
         normalTS += detailNormalTS;
         #else
-        normalTS = lerp(normalTS, BlendNormalRNM(normalTS, detailNormalTS), detailMask);
+        normalTS = BlendNormalRNM(normalTS, detailNormalTS);
         #endif
     #endif
 #else
@@ -138,17 +139,29 @@ float3 ADD_IDX(GetNormalTS)(FragInputs input, LayerTexCoord layerTexCoord, float
     return normalTS;
 }
 
+static int bayer4x4[16] = {  0,  8,  2, 10,
+                            12,  4, 14,  6,
+                             3, 11,  1,  9,
+                            15,  7, 13,  5 };
+
+float BayerDither4x4(float2 uv){
+    int i = int(fmod(uv.x, 4));
+    int j = int(fmod(uv.y, 4));
+    return bayer4x4[(i + j * 4.0)] / 16.0;
+}
+
+
 // Return opacity
 float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out SurfaceData surfaceData, out float3 normalTS)
 {
-    float alpha = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.base)).a * ADD_IDX(_BaseColor).a;
+    float alpha = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.fuzz)).a * ADD_IDX(_BaseColor).a;
 
     // Perform alha test very early to save performance (a killed pixel will not sample textures)
 
     float3 detailNormalTS = float3(0.0, 0.0, 0.0);
     float detailMask = 0.0;
 #ifdef _DETAIL_MAP_IDX
-    detailMask = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMask), SAMPLER_DETAILMASK_IDX, ADD_IDX(layerTexCoord.base)).g;
+    detailMask = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMask), SAMPLER_DETAILMASK_IDX, ADD_IDX(layerTexCoord.fuzz)).r;
     float4 detailAlbedoAndSmoothness = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DetailMap), SAMPLER_DETAILMAP_IDX, ADD_IDX(layerTexCoord.details));
     float detailAlbedo = detailAlbedoAndSmoothness.r;
     float detailSmoothness = detailAlbedoAndSmoothness.g;
@@ -162,12 +175,22 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
     #ifdef _DETAIL_MAP_IDX
     	alpha *= detailAlpha;
     #endif
-    clip(alpha - _AlphaCutoff);
+    alpha = alpha > _AlphaCutoffOpacityThreshold ? 1.0 : alpha;
+     //Dither
+    //----------------------------------
+    float a0 = round(alpha);
+    float a1 = 1 - a0;
+    float ditherSample = BayerDither4x4(input.unPositionSS.xy);
+    float ditherPattern = (abs(a0 - alpha) < ditherSample) ? a1 : a0;
+    alpha = alpha > ditherPattern ? 1.0 : alpha;
+    //----------------------------------
+    clip(alpha - _AlphaCutoff); // Let artists make prepass cutout thinner
+
 #endif
 
     surfaceData.baseColor = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_BaseColorMap), ADD_ZERO_IDX(sampler_BaseColorMap), ADD_IDX(layerTexCoord.base)).rgb * ADD_IDX(_BaseColor).rgb;
 #ifdef _DETAIL_MAP_IDX
-    surfaceData.baseColor += 0.5*detailAlbedo * ADD_IDX(_DetailAlbedoScale)*detailMask;
+    surfaceData.baseColor = surfaceData.baseColor*lerp(1,detailAlbedo, ADD_IDX(_DetailAlbedoScale))+_DetailFuzz1*detailMask;
 #endif
 
 #ifdef _SPECULAROCCLUSIONMAP_IDX
@@ -179,7 +202,7 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
 #endif
     surfaceData.normalWS = float3(0.0, 0.0, 0.0); // Need to init this to keep quiet the compiler, but this is overriden later (0, 0, 0) so if we forget to override the compiler may comply.
 
-    normalTS = ADD_IDX(GetNormalTS)(input, layerTexCoord, detailNormalTS, detailMask, false, 0.0);
+    normalTS = ADD_IDX(GetNormalTS)(input, layerTexCoord, detailNormalTS, 1.0, false, 0.0);
 
 #if defined(_MASKMAP_IDX)
     surfaceData.perceptualSmoothness = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_MaskMap), SAMPLER_MASKMAP_IDX, ADD_IDX(layerTexCoord.base)).a;
@@ -188,7 +211,7 @@ float ADD_IDX(GetSurfaceData)(FragInputs input, LayerTexCoord layerTexCoord, out
 #endif
     surfaceData.perceptualSmoothness *= ADD_IDX(lerp(0.1,0.6,_Smoothness));
 #ifdef _DETAIL_MAP_IDX
-    surfaceData.perceptualSmoothness *= LerpWhiteTo(2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale)), detailMask);
+    surfaceData.perceptualSmoothness *= 2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale));
 #endif
 
     // MaskMap is RGBA: Metallic, Ambient Occlusion (Optional), emissive Mask (Optional), Smoothness

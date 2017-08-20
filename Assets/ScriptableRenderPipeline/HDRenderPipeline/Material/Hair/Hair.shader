@@ -9,7 +9,7 @@ Shader "HDRenderPipeline/ExperimentalHair"
         _SecondarySpecularShift("SecondarySpecularShift", Range(-1.0, 1.0)) = 0.0
         _SpecularTint("SpecularTint", Color) = (1.0, 1.0, 1.0)
         _Scatter("Scatter", Range(0.0, 1.0)) = 0.7
-
+       
         // Following set of parameters represent the parameters node inside the MaterialGraph.
         // They are use to fill a SurfaceData. With a MaterialGraph this should not exist.
 
@@ -140,7 +140,6 @@ Shader "HDRenderPipeline/ExperimentalHair"
     #include "../../../ShaderLibrary/common.hlsl"
     #include "../../../ShaderLibrary/Wind.hlsl"
     #include "../../ShaderConfig.cs.hlsl"
-    #include "../../ShaderVariables.hlsl"
     #include "../../ShaderPass/FragInputs.hlsl"
     #include "../../ShaderPass/ShaderPass.cs.hlsl"
 
@@ -157,70 +156,8 @@ Shader "HDRenderPipeline/ExperimentalHair"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "PerformanceChecks"="False" }
+        Tags { "RenderType"="Transparent" "Queue"="Transparent" "PerformanceChecks"="False" }
         LOD 300
-
-        Pass
-        {
-            Name "ShadowCaster"
-            Tags{ "LightMode" = "ShadowCaster" }
-
-            Cull[_CullMode]
-
-            ZWrite On
-            ZTest LEqual
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_DEPTH_ONLY
-            #define HAIR_SHADOW
-            #include "../../Material/Material.hlsl"
-            #include "ShaderPass/HairDepthPass.hlsl"
-            #include "HairData.hlsl"
-            #include "../../ShaderPass/ShaderPassDepthOnly.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "DepthOnly"
-            Tags{ "LightMode" = "DepthOnly" }
-
-            Cull[_CullMode]
-
-            ZWrite On
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_DEPTH_ONLY
-            #include "../../Material/Material.hlsl"
-            #include "ShaderPass/HairDepthPass.hlsl"
-            #include "HairData.hlsl"
-            #include "../../ShaderPass/ShaderPassDepthOnly.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "Motion Vectors"
-            Tags{ "LightMode" = "MotionVectors" } // Caution, this need to be call like this to setup the correct parameters by C++ (legacy Unity)
-
-            Cull[_CullMode]
-
-            ZWrite Off // TODO: Test Z equal here.
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_VELOCITY
-            #include "../../Material/Material.hlsl"
-            #include "ShaderPass/HairVelocityPass.hlsl"
-            #include "HairData.hlsl"
-            #include "../../ShaderPass/ShaderPassVelocity.hlsl"
-
-            ENDHLSL
-        }
 
         Pass
         {
@@ -234,6 +171,7 @@ Shader "HDRenderPipeline/ExperimentalHair"
             HLSLPROGRAM
 
             #define SHADERPASS SHADERPASS_FORWARD
+            #include "../../ShaderVariables.hlsl"
             #include "../../Lighting/Forward.hlsl"
             // TEMP until pragma work in include
             #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
@@ -259,56 +197,7 @@ Shader "HDRenderPipeline/ExperimentalHair"
 
             #define DEBUG_DISPLAY
             #define SHADERPASS SHADERPASS_FORWARD
-            #include "../../Debug/DebugDisplay.hlsl"
-            #include "../../Lighting/Forward.hlsl"
-            // TEMP until pragma work in include
-            #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
-
-            #include "../../Lighting/Lighting.hlsl"
-            #include "ShaderPass/HairSharePass.hlsl"
-            #include "HairData.hlsl"
-            #include "../../ShaderPass/ShaderPassForward.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "ForwardOnlyOpaque" // Name is not used
-            Tags { "LightMode" = "ForwardOnlyOpaque" } // This will be only for transparent object based on the RenderQueue index
-
-            Blend [_SrcBlend] [_DstBlend]
-            ZWrite [_ZWrite]
-            Cull [_CullMode]
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_FORWARD
-            #include "../../Lighting/Forward.hlsl"
-            // TEMP until pragma work in include
-            #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
-
-            #include "../../Lighting/Lighting.hlsl"
-            #include "ShaderPass/HairSharePass.hlsl"
-            #include "HairData.hlsl"
-            #include "../../ShaderPass/ShaderPassForward.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "ForwardOnlyOpaqueDisplayDebug" // Name is not used
-            Tags{ "LightMode" = "ForwardOnlyOpaqueDisplayDebug" } // This will be only for transparent object based on the RenderQueue index
-
-            Blend[_SrcBlend][_DstBlend]
-            ZWrite[_ZWrite]
-            Cull[_CullMode]
-
-            HLSLPROGRAM
-
-            #define DEBUG_DISPLAY
-            #define SHADERPASS SHADERPASS_FORWARD
+            #include "../../ShaderVariables.hlsl"
             #include "../../Debug/DebugDisplay.hlsl"
             #include "../../Lighting/Forward.hlsl"
             // TEMP until pragma work in include
@@ -335,13 +224,61 @@ Shader "HDRenderPipeline/ExperimentalHair"
 
             #define SHADERPASS SHADERPASS_DEPTH_ONLY
             #define HAIR_TRANSPARENT_DEPTH_WRITE
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/HairDepthPass.hlsl"
             #include "HairData.hlsl"
             #include "../../ShaderPass/ShaderPassDepthOnly.hlsl"
 
             ENDHLSL
-        }        
+        } 
+        
+        Pass
+        {
+            Name "ShadowCaster"
+            Tags{ "LightMode" = "ShadowCaster" }
+
+            Cull[_CullMode]
+            
+            ZWrite On
+            ZTest LEqual
+
+            HLSLPROGRAM
+
+            #define SHADERPASS SHADERPASS_SHADOWS
+            
+            #define USE_LEGACY_UNITY_MATRIX_VARIABLES
+            #include "../../ShaderVariables.hlsl"
+
+            #define HAIR_SHADOW
+            #include "../../Material/Material.hlsl"
+            #include "ShaderPass/HairDepthPass.hlsl"
+            #include "HairData.hlsl"
+            #include "../../ShaderPass/ShaderPassDepthOnly.hlsl"
+
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "Motion Vectors"
+            Tags{ "LightMode" = "MotionVectors" } // Caution, this need to be call like this to setup the correct parameters by C++ (legacy Unity)
+
+            Cull[_CullMode]
+
+            ZWrite Off // TODO: Test Z equal here.
+
+            HLSLPROGRAM
+
+            #define SHADERPASS SHADERPASS_VELOCITY
+            #include "../../ShaderVariables.hlsl"
+            #include "../../Material/Material.hlsl"
+            #include "ShaderPass/HairVelocityPass.hlsl"
+            #include "HairData.hlsl"
+            #include "../../ShaderPass/ShaderPassVelocity.hlsl"
+
+            ENDHLSL
+        } 
     }
 
 	CustomEditor "Experimental.Rendering.HDPipeline.CharacterGUI"

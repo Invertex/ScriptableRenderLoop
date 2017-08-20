@@ -64,6 +64,7 @@ struct LayerTexCoord
 #ifndef LAYERED_LIT_SHADER
 	UVMapping base;
 	UVMapping details;
+	UVMapping fuzz;
 #else
 	// Regular texcoord
 	UVMapping base0;

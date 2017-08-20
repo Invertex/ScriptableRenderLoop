@@ -300,6 +300,19 @@ float3 GetNormalTS(FragInputs input, LayerTexCoord layerTexCoord, float3 detailN
     return normalTS;
 }
 
+
+
+static int bayer4x4[16] = {  0,  8,  2, 10,
+                            12,  4, 14,  6,
+                             3, 11,  1,  9,
+                            15,  7, 13,  5 };
+
+float BayerDither4x4(float2 uv){
+    int i = int(fmod(uv.x, 4));
+    int j = int(fmod(uv.y, 4));
+    return bayer4x4[(i + j * 4.0)] / 16.0;
+}
+
 float GetSurfaceData(FragInputs input, LayerTexCoord layerTexCoord, out SurfaceData surfaceData, out float3 normalTS)
 {
     float alpha = SAMPLE_UVMAPPING_TEXTURE2D(ADD_IDX(_DiffuseColorMap), ADD_ZERO_IDX(sampler_DiffuseColorMap), ADD_IDX(layerTexCoord.base)).a * ADD_IDX(_DiffuseColor).a;
@@ -310,6 +323,14 @@ float GetSurfaceData(FragInputs input, LayerTexCoord layerTexCoord, out SurfaceD
     clip(alpha - _AlphaCutoffShadow); // Let artists make hair shadow thiner
     #elif defined(HAIR_TRANSPARENT_DEPTH_WRITE)
     alpha = alpha > _AlphaCutoffOpacityThreshold ? 1.0 : alpha;
+     //Dither
+    //----------------------------------
+    float a0 = round(alpha);
+    float a1 = 1 - a0;
+    float ditherSample = BayerDither4x4(input.unPositionSS.xy);
+    float ditherPattern = (abs(a0 - alpha) < ditherSample) ? a1 : a0;
+    alpha = alpha > ditherPattern ? 1.0 : alpha;
+    //----------------------------------
     clip(alpha - _AlphaCutoffPrepass); // Let artists make prepass cutout thinner
     #else
     clip(alpha - _AlphaCutoff);
@@ -344,7 +365,7 @@ float GetSurfaceData(FragInputs input, LayerTexCoord layerTexCoord, out SurfaceD
 #endif
     surfaceData.perceptualSmoothness *= ADD_IDX(_Smoothness);
 #ifdef _DETAIL_MAP_IDX
-    surfaceData.perceptualSmoothness *= LerpWhiteTo(2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale)), detailMask);
+    surfaceData.perceptualSmoothness *= 2.0 * saturate(detailSmoothness * ADD_IDX(_DetailSmoothnessScale));
 #endif
 
     // MaskMap is RGBA: Metallic, Ambient Occlusion (Optional), emissive Mask (Optional), Smoothness

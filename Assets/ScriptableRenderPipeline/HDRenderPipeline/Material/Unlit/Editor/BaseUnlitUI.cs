@@ -91,7 +91,6 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
         protected virtual void FindBaseMaterialProperties(MaterialProperty[] props)
         {
             surfaceType = FindProperty(kSurfaceType, props);
-            alphaCutoffEnable = FindProperty(kAlphaCutoffEnabled, props);
             alphaCutoff = FindProperty(kAlphaCutoff, props);
             alphaCutoffShadow = FindProperty(kAlphaCutoffShadow, props, false);
             alphaCutoffPrepass = FindProperty(kAlphaCutoffPrepass, props, false);
@@ -157,34 +156,6 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
                 }
             }
             
-            m_MaterialEditor.ShaderProperty(alphaCutoffEnable, StylesBaseUnlit.alphaCutoffEnableText);
-            if (alphaCutoffEnable.floatValue == 1.0f)
-            {
-                EditorGUI.indentLevel++;
-
-                m_MaterialEditor.ShaderProperty(alphaCutoff, StylesBaseUnlit.alphaCutoffText);
-
-                if (alphaCutoffShadow != null)
-                {
-                    m_MaterialEditor.ShaderProperty(alphaCutoffShadow, StylesBaseUnlit.alphaCutoffShadowText);
-                    
-                    if ((SurfaceType)surfaceType.floatValue == SurfaceType.Transparent)
-                    {                        
-                        m_MaterialEditor.ShaderProperty(transparentDepthWritePrepassEnable, StylesBaseUnlit.transparentDepthWritePrepassEnableText);
-
-                        EditorGUI.indentLevel++;
-                        if (transparentDepthWritePrepassEnable != null && transparentDepthWritePrepassEnable.floatValue == 1.0f)
-                        {
-                            m_MaterialEditor.ShaderProperty(alphaCutoffPrepass, StylesBaseUnlit.alphaCutoffPrepassText);
-                            m_MaterialEditor.ShaderProperty(alphaCutoffOpacityThreshold, StylesBaseUnlit.alphaCutoffOpacityThresholdText);
-                        }
-
-                        EditorGUI.indentLevel--;
-                    }
-                    
-                }
-                EditorGUI.indentLevel--;
-            }            
             // This function must finish with double sided option (see LitUI.cs)
             m_MaterialEditor.ShaderProperty(doubleSidedEnable, StylesBaseUnlit.doubleSidedEnableText);
         }
@@ -200,17 +171,14 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
         // All Setup Keyword functions must be static. It allow to create script to automatically update the shaders with a script if ocde change
         static public void SetupBaseUnlitKeywords(Material material)
         {
-            bool alphaTestEnable = material.GetFloat(kAlphaCutoffEnabled) > 0.0f;
             SurfaceType surfaceType = (SurfaceType)material.GetFloat(kSurfaceType);
             BlendMode blendMode = (BlendMode)material.GetFloat(kBlendMode);
 
             if (surfaceType == SurfaceType.Opaque)
             {
-                material.SetOverrideTag("RenderType", alphaTestEnable ? "TransparentCutout" : "");
                 material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
                 material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
                 material.SetInt("_ZWrite", 1);
-                material.renderQueue = alphaTestEnable ? (int)UnityEngine.Rendering.RenderQueue.AlphaTest : -1;
             }
             else
             {
@@ -258,8 +226,7 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
             }
 
             SetKeyword(material, "_DOUBLESIDED_ON", doubleSidedEnable);
-            SetKeyword(material, "_ALPHATEST_ON", alphaTestEnable);
-
+            
             if (material.HasProperty(kDistortionEnable))
             {
                 bool distortionEnable = material.GetFloat(kDistortionEnable) > 0.0f;
@@ -287,7 +254,7 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
 
             if (material.HasProperty(kTransparentDepthWritePrepassEnable))
             {
-                bool depthWriteEnable = (material.GetFloat(kAlphaCutoffEnabled) > 0.0f) && (material.GetFloat(kTransparentDepthWritePrepassEnable) > 0.0f) && ((SurfaceType)material.GetFloat(kSurfaceType) == SurfaceType.Transparent);
+                bool depthWriteEnable =  (material.GetFloat(kTransparentDepthWritePrepassEnable) > 0.0f) && ((SurfaceType)material.GetFloat(kSurfaceType) == SurfaceType.Transparent);
                 if (depthWriteEnable)
                 {
                     material.SetShaderPassEnabled("TransparentDepthWrite", true);

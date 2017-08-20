@@ -272,31 +272,38 @@ void EvaluateBSDF_Directional(  LightLoopContext lightLoopContext,
 
 	[branch] if (lightData.cookieIndex >= 0)
 	{
-		float3 lightToSurface = positionWS - lightData.positionWS;
+        // Compute the NDC position (in [-1, 1]^2) by projecting 'positionWS' onto the near plane.
+        // 'lightData.right' and 'lightData.up' are pre-scaled on CPU.
+        float3   lightToSurface = positionWS - lightData.positionWS;
 
-		// Project 'lightToSurface' onto the light's axes.
-		float2 coord = float2(dot(lightToSurface, lightData.right), dot(lightToSurface, lightData.up));
+        float3x3 lightToWorld = float3x3(lightData.right, lightData.up, lightData.forward);
+        float3   positionLS = mul(lightToSurface, transpose(lightToWorld));
+        float2   positionNDC = positionLS.xy;
 
-		// Compute the NDC coordinates (in [-1, 1]^2).
-		coord.x *= lightData.invScaleX;
-		coord.y *= lightData.invScaleY;
+        float clipFactor = 1.0f;
 
-		if (lightData.tileCookie || (abs(coord.x) <= 1 && abs(coord.y) <= 1))
-		{
-			// Remap the texture coordinates from [-1, 1]^2 to [0, 1]^2.
-			coord = coord * 0.5 + 0.5;
+        // Remap the texture coordinates from [-1, 1]^2 to [0, 1]^2.
+        float2 coord = positionNDC * 0.5 + 0.5;
 
-			// Tile the texture if the 'repeat' wrap mode is enabled.
-			if (lightData.tileCookie) { coord = frac(coord); }
+    //        if (lightData.tileCookie)
+    //    {
+    // Tile the texture if the 'repeat' wrap mode is enabled.
+    //          coord = frac(coord);
+    //  }
+        //else
+        {
+            // bool  isInBounds = max(abs(positionNDC.x), abs(positionNDC.y)) <= 1 && positionLS.z >= 0;
+            // float clipFactor = isInBounds ? 1 : 0;
+            // This version is slightly more efficient:
+            clipFactor = saturate(FLT_MAX - FLT_MAX * Max3(abs(positionNDC.x), abs(positionNDC.y), positionLS.z >= 0 ? 0 : 1));
+        }
 
-			cookie = SampleCookie2D(lightLoopContext, coord, lightData.cookieIndex);
-		}
-		else
-		{
-			cookie = float4(0, 0, 0, 0);
-		}
+        // We let the sampler handle tiling or clamping to border.
+        // Note: tiling (the repeat mode) is not currently supported.
+        float4 c = SampleCookie2D(lightLoopContext, coord, lightData.cookieIndex);
 
-		illuminance *= cookie.a;
+        // Use premultiplied alpha to save 1x VGPR.
+        cookie.xyz = c.rgb * c.a * clipFactor;
 	}
 
 	[branch] if (illuminance > 0.0)
@@ -337,23 +344,16 @@ void EvaluateBSDF_Punctual( LightLoopContext lightLoopContext,
     float4 cookie    = float4(1.0, 1.0, 1.0, 1.0);
 	float  shadow = 1;
 
-    // TODO: measure impact of having all these dynamic branch here and the gain (or not) of testing illuminace > 0
+        [branch] if (lightData.shadowIndex >= 0)
+    {
+        // TODO: make projector lights cast shadows.
+        float3 offset = float3(0.0, 0.0, 0.0); // GetShadowPosOffset(nDotL, normal);
+        float4 L_dist = { normalize( L.xyz ), length( unL ) };
+        shadow = GetPunctualShadowAttenuation(lightLoopContext.shadowContext, positionWS + offset, bsdfData.normalWS, lightData.shadowIndex, L_dist, posInput.unPositionSS);
+        shadow = lerp(1.0, shadow, lightData.shadowDimmer);
 
-    //[branch] if (lightData.IESIndex >= 0 && illuminance > 0.0)
-    //{
-    //    float3x3 lightToWorld = float3x3(lightData.right, lightData.up, lightData.forward);
-    //    float2 sphericalCoord = GetIESTextureCoordinate(lightToWorld, L);
-    //    illuminance *= SampleIES(lightLoopContext, lightData.IESIndex, sphericalCoord, 0).r;
-    //}
-
-	[branch] if (lightData.shadowIndex >= 0)
-	{
-		float3 offset = float3(0.0, 0.0, 0.0); // GetShadowPosOffset(nDotL, normal);
-		shadow = GetPunctualShadowAttenuation(lightLoopContext.shadowContext, positionWS + offset, bsdfData.normalWS, lightData.shadowIndex, L, posInput.unPositionSS);
-		shadow = lerp(1.0, shadow, lightData.shadowDimmer);
-
-		illuminance *= shadow;
-	}
+        illuminance *= shadow;
+    }
 
 	[branch] if (lightData.cookieIndex >= 0)
 	{
@@ -479,9 +479,9 @@ void EvaluateBSDF_Line(LightLoopContext lightLoopContext,
 // #define ELLIPSOIDAL_ATTENUATION
 
 void EvaluateBSDF_Area(LightLoopContext lightLoopContext,
-                       float3 V, PositionInputs posInput,
-                       PreLightData preLightData, LightData lightData, BSDFData bsdfData,
-                       out float3 diffuseLighting, out float3 specularLighting)
+    float3 V, PositionInputs posInput,
+    PreLightData preLightData, LightData lightData, BSDFData bsdfData, int GPULightType,
+    out float3 diffuseLighting, out float3 specularLighting)
 {
     diffuseLighting = float3(0.0, 0.0, 0.0);
     specularLighting = float3(0.0, 0.0, 0.0);

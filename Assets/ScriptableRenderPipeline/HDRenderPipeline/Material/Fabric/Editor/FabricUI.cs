@@ -44,12 +44,13 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
 
             // Details
             public static string detailText = "Inputs Detail";
-            public static GUIContent UVDetailMappingText = new GUIContent("Detail UV mapping", "");
-            public static GUIContent detailMapNormalText = new GUIContent("Detail Map A(R) Ny(G) S(B) Nx(A)", "Detail Map");
-            public static GUIContent detailMaskText = new GUIContent("Detail Mask (G)", "Mask for detailMap");
-            public static GUIContent detailAlbedoScaleText = new GUIContent("Detail AlbedoScale", "Detail Albedo Scale factor");
-            public static GUIContent detailNormalScaleText = new GUIContent("Detail NormalScale", "Normal Scale factor");
-            public static GUIContent detailSmoothnessScaleText = new GUIContent("Detail SmoothnessScale", "Smoothness Scale factor");
+			public static GUIContent UVDetailMappingText = new GUIContent("Thread UV", "");
+			public static GUIContent detailMapNormalText = new GUIContent("Thread Detail A(R) Ny(G) S(B) Nx(A)", "Detail Map");
+			public static GUIContent detailMaskText = new GUIContent("Fuzz Detail (RG)", "Fuzz Detail");
+			public static GUIContent detailFuzz1Text = new GUIContent("Fuzz Detail 1", "Fuzz Detail factor");
+			public static GUIContent detailAlbedoScaleText = new GUIContent("Thread AO", "Detail Albedo Scale factor");
+			public static GUIContent detailNormalScaleText = new GUIContent("Thread Normal", "Normal Scale factor");
+			public static GUIContent detailSmoothnessScaleText = new GUIContent("Thread Smoothness", "Smoothness Scale factor");
 
             // Subsurface
             public static GUIContent subsurfaceProfileText = new GUIContent("Subsurface profile", "A profile determines the shape of the blur filter.");
@@ -169,9 +170,11 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
         protected const string kDetailMap = "_DetailMap";
         protected MaterialProperty detailMask = null;
         protected const string kDetailMask = "_DetailMask";
-        protected MaterialProperty detailAlbedoScale = null;
-        protected const string kDetailAlbedoScale = "_DetailAlbedoScale";
-        protected MaterialProperty detailNormalScale = null;
+		protected MaterialProperty detailFuzz1 = null;
+		protected const string kDetailFuzz1 = "_DetailFuzz1";
+		protected MaterialProperty detailAlbedoScale = null;
+		protected const string kDetailAlbedoScale = "_DetailAlbedoScale";
+		protected MaterialProperty detailNormalScale = null;
         protected const string kDetailNormalScale = "_DetailNormalScale";
         protected MaterialProperty detailSmoothnessScale = null;
         protected const string kDetailSmoothnessScale = "_DetailSmoothnessScale";
@@ -228,8 +231,9 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
             UVDetailsMappingMask = FindProperty(kUVDetailsMappingMask, props);
             detailMap = FindProperty(kDetailMap, props);
             detailMask = FindProperty(kDetailMask, props);
-            detailAlbedoScale = FindProperty(kDetailAlbedoScale, props);
-            detailNormalScale = FindProperty(kDetailNormalScale, props);
+			detailFuzz1 = FindProperty(kDetailFuzz1, props);
+			detailAlbedoScale = FindProperty(kDetailAlbedoScale, props);
+			detailNormalScale = FindProperty(kDetailNormalScale, props);
             detailSmoothnessScale = FindProperty(kDetailSmoothnessScale, props);
 
             // Sub surface
@@ -428,7 +432,8 @@ namespace UnityEditor.Experimental.Rendering.HDPipeline
             UVDetailsMappingMask.colorValue = new Color(X, Y, Z, W);
 
             m_MaterialEditor.TextureScaleOffsetProperty(detailMap);
-            m_MaterialEditor.ShaderProperty(detailAlbedoScale, Styles.detailAlbedoScaleText);
+			m_MaterialEditor.ShaderProperty(detailFuzz1, Styles.detailFuzz1Text);
+			m_MaterialEditor.ShaderProperty(detailAlbedoScale, Styles.detailAlbedoScaleText);
             m_MaterialEditor.ShaderProperty(detailNormalScale, Styles.detailNormalScaleText);
             m_MaterialEditor.ShaderProperty(detailSmoothnessScale, Styles.detailSmoothnessScaleText);
             EditorGUI.indentLevel--;

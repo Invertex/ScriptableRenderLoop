@@ -2,6 +2,8 @@ CBUFFER_START(_PerMaterial)
 
 // shared constant between lit and layered lit
 float _AlphaCutoff;
+float _AlphaCutoffPrepass;
+float _AlphaCutoffOpacityThreshold;
 float4 _DoubleSidedConstants;
 float3 _FuzzTint;
 
@@ -61,6 +63,7 @@ SAMPLER2D(sampler_DetailMask);
 TEXTURE2D(_DetailMap);
 SAMPLER2D(sampler_DetailMap);
 float4 _DetailMap_ST;
+float _DetailFuzz1;
 float _DetailAlbedoScale;
 float _DetailNormalScale;
 float _DetailSmoothnessScale;
@@ -141,6 +144,7 @@ float4 _DetailMap1_ST;
 float4 _DetailMap2_ST;
 float4 _DetailMap3_ST;
 PROP_DECL(float, _UVDetail);
+PROP_DECL(float, _DetailFuzz1);
 PROP_DECL(float, _DetailAlbedoScale);
 PROP_DECL(float, _DetailNormalScale);
 PROP_DECL(float, _DetailSmoothnessScale);

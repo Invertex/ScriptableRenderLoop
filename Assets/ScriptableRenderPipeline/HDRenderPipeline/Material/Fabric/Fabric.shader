@@ -27,7 +27,8 @@ Shader "HDRenderPipeline/ExperimentalFabric"
 
         _DetailMap("DetailMap", 2D) = "black" {}
         _DetailMask("DetailMask", 2D) = "white" {}
-        _DetailAlbedoScale("_DetailAlbedoScale", Range(0.0, 2.0)) = 1
+        _DetailFuzz1("_DetailFuzz1", Range(0.0, 1.0)) = 1
+        _DetailAlbedoScale("_DetailAlbedoScale", Range(0.0, 1.0)) = 1
         _DetailNormalScale("_DetailNormalScale", Range(0.0, 2.0)) = 1
         _DetailSmoothnessScale("_DetailSmoothnessScale", Range(-2.0, 2.0)) = 1
 
@@ -65,8 +66,11 @@ Shader "HDRenderPipeline/ExperimentalFabric"
         [ToggleOff] _DistortionDepthTest("Distortion Depth Test Enable", Float) = 0.0
         [ToggleOff] _DepthOffsetEnable("Depth Offset View space", Float) = 0.0
 
-        [ToggleOff]  _AlphaCutoffEnable("Alpha Cutoff Enable", Float) = 0.0
+        [ToggleOff] _AlphaCutoffEnable("Alpha Cutoff Enable", Float) = 1.0
         _AlphaCutoff("Alpha Cutoff", Range(0.0, 1.0)) = 0.5
+        _TransparentDepthWritePrepassEnable("Alpha Cutoff Enable", Float) = 1.0
+        _AlphaCutoffPrepass("Alpha Cutoff", Range(0.0, 1.0)) = 0.5
+        _AlphaCutoffOpacityThreshold("Alpha Cutoff", Range(0.0, 1.0)) = 0.99     
 
         // Stencil state
         [HideInInspector] _StencilRef("_StencilRef", Int) = 2 // StencilLightingUsage.RegularLighting  (fixed at compile time)
@@ -166,7 +170,6 @@ Shader "HDRenderPipeline/ExperimentalFabric"
     #include "../../../ShaderLibrary/common.hlsl"
     #include "../../../ShaderLibrary/Wind.hlsl"
     #include "../../ShaderConfig.cs.hlsl"
-    #include "../../ShaderVariables.hlsl"
     #include "../../ShaderPass/FragInputs.hlsl"
     #include "../../ShaderPass/ShaderPass.cs.hlsl"
 
@@ -192,7 +195,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             Name "ForwardOnlyOpaqueSplitLighting"
             Tags { "LightMode"="ForwardOnlyOpaqueSplitLighting" }
 
-            Blend One One, One Zero
+            Blend One Zero
             ZWrite [_ZWrite]
             Cull [_CullMode]
 
@@ -208,6 +211,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             #define FORWARD_SPLIT_LIGHTING
 
             #define SHADERPASS SHADERPASS_FORWARD
+            #include "../../ShaderVariables.hlsl"
             #include "../../Lighting/Forward.hlsl"
             #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
 
@@ -219,31 +223,6 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             ENDHLSL
 
         }
-
-        /*
-        Pass
-        {
-            Name "ForwardOnlyOpaque" // Name is not used
-            Tags { "LightMode" = "ForwardOnlyOpaque" } // This will be only for transparent object based on the RenderQueue index
-
-            Blend [_SrcBlend] [_DstBlend]
-            ZWrite [_ZWrite]
-            Cull [_CullMode]
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_FORWARD
-            #include "../../Lighting/Forward.hlsl"
-            // TEMP until pragma work in include
-            #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
-
-            #include "../../Lighting/Lighting.hlsl"
-            #include "ShaderPass/FabricSharePass.hlsl"
-            #include "FabricData.hlsl"
-            #include "../../ShaderPass/ShaderPassForward.hlsl"
-
-            ENDHLSL
-        }*/
 
         Pass
         {
@@ -257,6 +236,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             HLSLPROGRAM
 
             #define SHADERPASS SHADERPASS_DEPTH_ONLY
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricDepthPass.hlsl"
             #include "FabricData.hlsl"
@@ -281,6 +261,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             // both direct and indirect lighting) will hand up in the "regular" lightmap->LIGHTMAP_ON.
 
             #define SHADERPASS SHADERPASS_LIGHT_TRANSPORT
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricMetaPass.hlsl"
             #include "FabricData.hlsl"
@@ -302,7 +283,11 @@ Shader "HDRenderPipeline/ExperimentalFabric"
 
             HLSLPROGRAM
 
-            #define SHADERPASS SHADERPASS_DEPTH_ONLY
+            #define SHADERPASS SHADERPASS_SHADOWS
+            #define USE_LEGACY_UNITY_MATRIX_VARIABLES
+
+            #include "../../ShaderVariables.hlsl"
+
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricDepthPass.hlsl"
             #include "FabricData.hlsl"
@@ -323,6 +308,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             HLSLPROGRAM
 
             #define SHADERPASS SHADERPASS_DEPTH_ONLY
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricDepthPass.hlsl"
             #include "FabricData.hlsl"
@@ -340,16 +326,11 @@ Shader "HDRenderPipeline/ExperimentalFabric"
 
             ZWrite Off // TODO: Test Z equal here.
 
-            Stencil
-            {
-                Ref 2
-                Comp Always
-                Pass Replace
-            }
 
             HLSLPROGRAM
 
             #define SHADERPASS SHADERPASS_VELOCITY
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricVelocityPass.hlsl"
             #include "FabricData.hlsl"
@@ -371,6 +352,7 @@ Shader "HDRenderPipeline/ExperimentalFabric"
             HLSLPROGRAM
 
             #define SHADERPASS SHADERPASS_DISTORTION
+            #include "../../ShaderVariables.hlsl"
             #include "../../Material/Material.hlsl"
             #include "ShaderPass/FabricDistortionPass.hlsl"
             #include "FabricData.hlsl"
@@ -381,54 +363,25 @@ Shader "HDRenderPipeline/ExperimentalFabric"
 
         Pass
         {
-            Name "Forward" // Name is not used
-            Tags { "LightMode" = "Forward" } // This will be only for transparent object based on the RenderQueue index
+            Name "TransparentDepthWrite"
+            Tags{ "LightMode" = "TransparentDepthWrite" }
 
-            Blend [_SrcBlend] [_DstBlend]
-            ZWrite [_ZWrite]
-            Cull [_CullMode]
-
-            HLSLPROGRAM
-
-            #define SHADERPASS SHADERPASS_FORWARD
-            #include "../../Lighting/Forward.hlsl"
-            // TEMP until pragma work in include
-            #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
-
-            #include "../../Lighting/Lighting.hlsl"
-            #include "ShaderPass/FabricSharePass.hlsl"
-            #include "FabricData.hlsl"
-            #include "../../ShaderPass/ShaderPassForward.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "ForwardDisplayDebug" // Name is not used
-            Tags{ "LightMode" = "ForwardDisplayDebug" } // This will be only for transparent object based on the RenderQueue index
-
-            Blend[_SrcBlend][_DstBlend]
-            ZWrite[_ZWrite]
             Cull[_CullMode]
 
+            ZWrite On
+
             HLSLPROGRAM
 
-            #define DEBUG_DISPLAY
-            #define SHADERPASS SHADERPASS_FORWARD
-            #include "../../Debug/DebugDisplay.hlsl"
-            #include "../../Lighting/Forward.hlsl"
-            // TEMP until pragma work in include
-            #pragma multi_compile LIGHTLOOP_SINGLE_PASS LIGHTLOOP_TILE_PASS
-
-            #include "../../Lighting/Lighting.hlsl"
-            #include "ShaderPass/FabricSharePass.hlsl"
+            #define SHADERPASS SHADERPASS_DEPTH_ONLY
+            #define FABRIC_TRANSPARENT_DEPTH_WRITE
+            #include "../../ShaderVariables.hlsl"
+            #include "../../Material/Material.hlsl"
+            #include "ShaderPass/FabricDepthPass.hlsl"
             #include "FabricData.hlsl"
-            #include "../../ShaderPass/ShaderPassForward.hlsl"
+            #include "../../ShaderPass/ShaderPassDepthOnly.hlsl"
 
             ENDHLSL
-        }
-
+        }        
     }
 
     CustomEditor "Experimental.Rendering.HDPipeline.FabricGUI"
